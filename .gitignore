@@ -1,0 +1,18 @@
+# Environments
+venv/
+env/
+.env
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Application specific
+logs/
+*.wav
+
+# IDEs
+.vscode/
+.idea/

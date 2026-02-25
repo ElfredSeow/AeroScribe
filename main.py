@@ -1,0 +1,118 @@
+import sys
+import argparse
+import logging
+import uvicorn
+import asyncio
+from contextlib import asynccontextmanager
+import threading
+
+import config
+from dashboard.server import app, broadcast_sync
+from state.event_store import EventStore
+from state.aircraft_state import AircraftStateEngine
+from state.ground_state import GroundStateEngine
+from detection.conflict_detection import ConflictDetector
+from detection.emergency_detection import EmergencyDetector
+from audio.atc_parser import ATCParser
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
+# Global instances (in a real app, use dependency injection)
+event_store = EventStore()
+aircraft_engine = AircraftStateEngine()
+ground_engine = GroundStateEngine()
+conflict_detector = ConflictDetector(aircraft_engine, ground_engine)
+emergency_detector = EmergencyDetector(aircraft_engine, ground_engine)
+parser = ATCParser(config=config.AIRPORT_LAYOUT)
+
+def process_text_transcript(text: str):
+    """Core pipeline for processing text transcripts."""
+    if not text.strip(): return
+    
+    # 1. Parse natural language
+    parsed_event = parser.parse(text)
+    
+    # 2. Update Operational State
+    aircraft_engine.update_from_event(parsed_event)
+    ground_engine.update_from_event(parsed_event)
+    
+    # Send Transcripts and State to UI immediately
+    broadcast_sync("transcript", {"raw": text, "parsed": parsed_event})
+    
+    state_snap = {
+        "aircraft": aircraft_engine.get_snapshot(),
+        "ground": ground_engine.get_snapshot()
+    }
+    broadcast_sync("state", state_snap)
+    
+    # Log events to JSONL
+    event_store.log_event(parsed_event, text, state_snap)
+    
+    # 3. Detect Conflicts & Emergencies based on new state
+    conflicts = conflict_detector.detect_conflicts()
+    emergencies = emergency_detector.detect_emergencies()
+    
+    all_alerts = emergencies + conflicts
+    for alert in all_alerts:
+        broadcast_sync("alert", alert)
+        event_store.log_alert(alert)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup Phase
+    logger.info("Initializing ATC AI Assist Core...")
+    import dashboard.server
+    dashboard.server._main_loop = asyncio.get_running_loop()
+    if app.state.simulate:
+        from simulation.radio_simulator import RadioSimulator
+        app.state.simulator = RadioSimulator(process_text_transcript, delay_between_calls=1.5)
+        app.state.simulator.start()
+        logger.info("Running in SIMULATION mode.")
+    else:
+        # Load heavy ML models
+        from audio.stt_engine import STTEngine
+        from audio.speech_listener import SpeechListener
+        app.state.stt = STTEngine()
+        
+        def audio_callback(np_data):
+            text = app.state.stt.transcribe(np_data)
+            if text:
+                logger.info(f"🎤 Heard: {text}")
+                process_text_transcript(text)
+                
+        app.state.listener = SpeechListener(audio_callback)
+        
+        if app.state.demo_wav:
+             logger.info(f"Running offline processing of WAV file: {app.state.demo_wav}")
+             threading.Thread(target=app.state.listener.process_wav_file, args=(app.state.demo_wav,), daemon=True).start()
+        else:
+             logger.info("Starting live microphone listener...")
+             app.state.listener.start_microphone()
+             
+    yield
+    
+    # Shutdown Phase
+    logger.info("Shutting down ATC AI Assist Core...")
+    if app.state.simulate:
+        app.state.simulator.stop()
+    elif hasattr(app.state, 'listener') and app.state.listener:
+        app.state.listener.stop()
+
+app.router.lifespan_context = lifespan
+
+if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser(description="ATC AI Assist System")
+    arg_parser.add_argument("--simulate", action="store_true", help="Run with scripted simulator instead of audio.")
+    arg_parser.add_argument("--demo-wav", type=str, help="Run offline using a specified .wav file.")
+    args = arg_parser.parse_args()
+    
+    app.state.simulate = args.simulate
+    app.state.demo_wav = args.demo_wav
+    
+    if args.demo_wav and args.simulate:
+         logger.error("Cannot use --simulate and --demo-wav at the same time.")
+         sys.exit(1)
+         
+    logger.info(f"Starting API Server on http://{config.HOST}:{config.PORT}")
+    uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="warning")

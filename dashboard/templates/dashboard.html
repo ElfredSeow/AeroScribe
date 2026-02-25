@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATC AI Assist Dashboard</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;700&display=swap');
+
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: rgba(22, 27, 34, 0.4);
+            --text-main: #c9d1d9;
+            --text-muted: #8b949e;
+            --accent: #33e1ed;
+            --success: #2ea043;
+            --warning: #e3b341;
+            --danger: #f85149;
+            --border: rgba(48, 54, 61, 0.5);
+            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            background-image: radial-gradient(circle at top right, rgba(51, 225, 237, 0.05), transparent 40%),
+                radial-gradient(circle at bottom left, rgba(46, 160, 67, 0.05), transparent 40%);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 350px 1fr 380px;
+            grid-template-rows: auto 1fr;
+            gap: 24px;
+            height: 100vh;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        h1,
+        h2,
+        h3 {
+            font-family: 'Outfit', sans-serif;
+            margin-top: 0;
+        }
+
+        /* Glassmorphism Header */
+        .header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 30px;
+            background: rgba(13, 17, 23, 0.6);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            box-shadow: var(--glass-shadow);
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 1.6rem;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(51, 225, 237, 0.3);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px 16px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: var(--success);
+            box-shadow: 0 0 10px var(--success);
+            transition: all 0.3s ease;
+        }
+
+        /* Glass Panels */
+        .panel {
+            background: var(--panel-bg);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: var(--glass-shadow);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .panel:hover {
+            box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.4);
+        }
+
+        .transcripts-panel {
+            grid-column: 1 / 2;
+        }
+
+        .state-panel {
+            grid-column: 2 / 3;
+        }
+
+        .alerts-panel {
+            grid-column: 3 / 4;
+        }
+
+        .scrollable {
+            flex-grow: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding-right: 8px;
+        }
+
+        .scrollable::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .scrollable::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .scrollable::-webkit-scrollbar-thumb {
+            background: rgba(139, 148, 158, 0.3);
+            border-radius: 4px;
+        }
+
+        .scrollable::-webkit-scrollbar-thumb:hover {
+            background: rgba(139, 148, 158, 0.6);
+        }
+
+        /* Transcript Item */
+        .transcript-item {
+            background: rgba(13, 17, 23, 0.6);
+            padding: 14px;
+            border-radius: 10px;
+            border-left: 3px solid var(--text-muted);
+            font-size: 0.95rem;
+            line-height: 1.4;
+            animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: transform 0.2s, background 0.2s;
+        }
+
+        .transcript-item:hover {
+            transform: translateX(4px);
+            background: rgba(13, 17, 23, 0.8);
+        }
+
+        .transcript-item.intent-landing {
+            border-left-color: var(--success);
+        }
+
+        .transcript-item.intent-takeoff {
+            border-left-color: var(--accent);
+        }
+
+        .transcript-item.intent-taxi {
+            border-left-color: var(--warning);
+        }
+
+        .transcript-item.intent-emergency {
+            border-left-color: var(--danger);
+        }
+
+        .transcript-meta {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            font-family: 'Outfit', sans-serif;
+            letter-spacing: 0.5px;
+        }
+
+        .transcript-raw {
+            font-style: italic;
+            color: #e6edf3;
+        }
+
+        /* Tables for State */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 0.9rem;
+            margin-bottom: 24px;
+        }
+
+        th,
+        td {
+            padding: 14px 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        th {
+            color: var(--text-muted);
+            font-weight: 500;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+        }
+
+        tr {
+            transition: background-color 0.2s;
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        /* Badges */
+        .badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: inline-block;
+        }
+
+        .badge.granted {
+            background: rgba(46, 160, 67, 0.15);
+            color: var(--success);
+            border: 1px solid rgba(46, 160, 67, 0.3);
+        }
+
+        .badge.pending {
+            background: rgba(227, 179, 65, 0.15);
+            color: var(--warning);
+            border: 1px solid rgba(227, 179, 65, 0.3);
+        }
+
+        .badge.emergency {
+            background: rgba(248, 81, 73, 0.15);
+            color: var(--danger);
+            border: 1px solid rgba(248, 81, 73, 0.3);
+            animation: pulse 2s infinite;
+        }
+
+        /* Alerts */
+        .alert-item {
+            padding: 16px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, rgba(248, 81, 73, 0.15) 0%, rgba(248, 81, 73, 0.05) 100%);
+            border: 1px solid rgba(248, 81, 73, 0.3);
+            color: #ff7b72;
+            font-size: 0.95rem;
+            line-height: 1.4;
+            animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .alert-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: var(--danger);
+        }
+
+        .alert-item.MEDIUM {
+            background: linear-gradient(135deg, rgba(227, 179, 65, 0.15) 0%, rgba(227, 179, 65, 0.05) 100%);
+            border-color: rgba(227, 179, 65, 0.3);
+            color: #e3b341;
+        }
+
+        .alert-item.MEDIUM::before {
+            background: var(--warning);
+        }
+
+        .section-title {
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 1.2rem;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .empty-state {
+            color: var(--text-muted);
+            font-style: italic;
+            text-align: center;
+            padding: 20px;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 10px rgba(248, 81, 73, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(248, 81, 73, 0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <h1>ATC AI Assist Dashboard</h1>
+        <div class="status-indicator">
+            <div class="dot" id="conn-dot"></div>
+            <span id="conn-status">Connecting...</span>
+        </div>
+    </div>
+
+    <!-- Transcripts Panel -->
+    <div class="panel transcripts-panel">
+        <h2 class="section-title">Live Radio Content</h2>
+        <div class="scrollable" id="transcripts-container">
+            <div class="empty-state" id="ts-empty">Waiting for radio transmission...</div>
+        </div>
+    </div>
+
+    <!-- State Panel -->
+    <div class="panel state-panel">
+        <h2 class="section-title">Live Operational State</h2>
+
+        <h3>Aircraft Overview</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Callsign</th>
+                    <th>Phase</th>
+                    <th>Sector/Route</th>
+                    <th>Clearance</th>
+                </tr>
+            </thead>
+            <tbody id="aircraft-tbody">
+                <tr>
+                    <td colspan="4" class="empty-state" style="border:none;">No active aircraft detected.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Ground Vehicles</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Vehicle ID</th>
+                    <th>Current Pos</th>
+                    <th>Request</th>
+                    <th>Clearance</th>
+                </tr>
+            </thead>
+            <tbody id="ground-tbody">
+                <tr>
+                    <td colspan="4" class="empty-state" style="border:none;">No active vehicles detected.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Alerts Panel -->
+    <div class="panel alerts-panel">
+        <h2 class="section-title">Detection Alerts</h2>
+        <div class="scrollable" id="alerts-container">
+            <div class="empty-state" id="al-empty">No active conflicts detected.</div>
+        </div>
+    </div>
+
+    <script>
+        // Use 127.0.0.1:8000 if the HTML file was opened directly in browser without FastAPI
+        const localWsUrl = location.protocol === 'file:' ? '127.0.0.1:8000' : location.host;
+        const ws = new WebSocket(`ws://${localWsUrl}/ws`);
+        const transcriptsContainer = document.getElementById('transcripts-container');
+        const alertsContainer = document.getElementById('alerts-container');
+        const acBody = document.getElementById('aircraft-tbody');
+        const gndBody = document.getElementById('ground-tbody');
+        const connDot = document.getElementById('conn-dot');
+        const connStatus = document.getElementById('conn-status');
+
+        let tsEmpty = document.getElementById('ts-empty');
+        let alEmpty = document.getElementById('al-empty');
+
+        ws.onopen = () => {
+            connDot.style.backgroundColor = 'var(--success)';
+            connDot.style.boxShadow = '0 0 10px var(--success)';
+            connStatus.innerText = 'System Online';
+        };
+
+        ws.onclose = () => {
+            connDot.style.backgroundColor = 'var(--danger)';
+            connDot.style.boxShadow = '0 0 10px var(--danger)';
+            connStatus.innerText = 'System Offline';
+        };
+
+        ws.onmessage = (event) => {
+            console.log("WebSocket received raw data:", event.data);
+            try {
+                const data = JSON.parse(event.data);
+                console.log("Parsed topic:", data.topic);
+                if (data.topic === 'transcript') {
+                    if (tsEmpty) { tsEmpty.remove(); tsEmpty = null; }
+                    handleTranscript(data.data);
+                } else if (data.topic === 'state') {
+                    handleStateUpdate(data.data);
+                } else if (data.topic === 'alert') {
+                    if (alEmpty) { alEmpty.remove(); alEmpty = null; }
+                    handleAlert(data.data);
+                }
+            } catch (err) {
+                console.error("Error parsing WebSocket message:", err);
+            }
+        };
+
+        function handleTranscript(payload) {
+            const el = document.createElement('div');
+            el.className = `transcript-item intent-${payload.parsed.intent || 'unknown'}`;
+            if (payload.parsed.emergency_flag) el.classList.add('intent-emergency');
+
+            const timeStr = new Date(payload.parsed.timestamp * 1000).toLocaleTimeString();
+
+            el.innerHTML = `
+                <div class="transcript-meta">${timeStr} • ${payload.parsed.entity_type.toUpperCase()} • ${payload.parsed.entity_id}</div>
+                <div class="transcript-raw">"${payload.raw}"</div>
+            `;
+            transcriptsContainer.prepend(el);
+            if (transcriptsContainer.children.length > 50) transcriptsContainer.lastChild.remove();
+        }
+
+        function handleStateUpdate(payload) {
+            // Update Aircraft
+            const acKeys = Object.keys(payload.aircraft);
+            if (acKeys.length > 0) acBody.innerHTML = '';
+
+            for (const [id, ac] of Object.entries(payload.aircraft)) {
+                let clearanceClass = ac.clearance_state === 'granted' ? 'granted' : 'pending';
+                if (ac.emergency_flag) clearanceClass += ' emergency';
+
+                let rwRoute = ac.runway || 'N/A';
+                if (ac.route.length > 0) rwRoute += ` (${ac.route.join(', ')})`;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${ac.callsign}</strong></td>
+                    <td>${ac.phase.toUpperCase()}</td>
+                    <td>${rwRoute}</td>
+                    <td><span class="badge ${clearanceClass}">${ac.emergency_flag ? 'EMERGENCY' : ac.clearance_state.toUpperCase()}</span></td>
+                `;
+                acBody.appendChild(tr);
+            }
+
+            // Update Ground
+            const gndKeys = Object.keys(payload.ground);
+            if (gndKeys.length > 0) gndBody.innerHTML = '';
+
+            for (const [id, v] of Object.entries(payload.ground)) {
+                let clearanceClass = v.clearance_state === 'granted' ? 'granted' : 'pending';
+                if (v.emergency_flag) clearanceClass += ' emergency';
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${v.vehicle_id}</strong></td>
+                    <td>${v.position}</td>
+                    <td>${v.runway_entry_request || 'None'}</td>
+                    <td><span class="badge ${clearanceClass}">${v.emergency_flag ? 'EMERGENCY' : v.clearance_state.toUpperCase()}</span></td>
+                `;
+                gndBody.appendChild(tr);
+            }
+        }
+
+        function handleAlert(payload) {
+            const el = document.createElement('div');
+            el.className = `alert-item ${payload.severity}`;
+            const timeStr = new Date(payload.timestamp * 1000).toLocaleTimeString();
+
+            el.innerHTML = `
+                <strong style="display:block;margin-bottom:4px;">${payload.severity === 'HIGH' ? '⚠️' : '⚡'} ${payload.alert_type.replace(/_/g, ' ')}</strong>
+                <div style="font-size:0.8rem;opacity:0.8;margin-bottom:8px;font-family:'Outfit',sans-serif;">${timeStr} • Entities: ${payload.entities.join(', ')}</div>
+                <div>${payload.message}</div>
+            `;
+            alertsContainer.prepend(el);
+            if (alertsContainer.children.length > 15) alertsContainer.lastChild.remove();
+        }
+    </script>
+</body>
+
+</html>

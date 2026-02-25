@@ -1,0 +1,11 @@
+# API / Web server
+fastapi
+uvicorn
+websockets
+
+# Audio handling
+faster-whisper
+sounddevice
+
+# Testing
+pytest
