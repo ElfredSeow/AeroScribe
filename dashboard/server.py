@@ -1,7 +1,8 @@
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import json
 import logging
 from pathlib import Path
@@ -107,9 +108,33 @@ async def get_dashboard():
     try:
         with open(template_path, 'r', encoding='utf-8') as f:
             html = f.read()
+            # A simple hack to inject the local IP dynamically if needed, 
+            # but we're mostly relying on JS location.host for now.
         return HTMLResponse(html)
     except FileNotFoundError:
         return HTMLResponse("<h1>Dashboard Template Missing</h1>", status_code=404)
+
+@app.get("/emergency")
+async def get_emergency_dashboard():
+    template_path = Path(__file__).parent / "templates" / "emergency.html"
+    try:
+        with open(template_path, 'r', encoding='utf-8') as f:
+            html = f.read()
+        return HTMLResponse(html)
+    except FileNotFoundError:
+        return HTMLResponse("<h1>Emergency Template Missing</h1>", status_code=404)
+
+class EmergencyNotification(BaseModel):
+    message: str
+    entities: list[str]
+    severity: str
+    timestamp: float
+
+@app.post("/api/notify-emergency")
+async def notify_emergency(payload: EmergencyNotification):
+    # Broadcast the notification to all clients, specifically meant for emergency.html
+    broadcast_sync("emergency_notification", payload.dict())
+    return {"status": "success", "message": "Emergency broadcast sent"}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

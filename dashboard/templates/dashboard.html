@@ -829,7 +829,7 @@
 
             desc.innerHTML = `<strong>Aircraft/Entities:</strong> ${payload.entities.join(', ')}<br><br><strong>Description:</strong> ${payload.message}<br><br><span style="color: var(--warning); font-weight: bold;">Would you like to notify emergency users (Fire, Medical, Towing)?</span>`;
 
-            document.getElementById('btn-approve-emergency').onclick = () => approveEmergencyServices(alertId);
+            document.getElementById('btn-approve-emergency').onclick = () => approveEmergencyServices(alertId, payload);
             document.getElementById('btn-cancel-emergency').onclick = () => closeEmergencyPopup(alertId);
 
             modal.style.display = 'flex';
@@ -846,13 +846,28 @@
             processEmergencyQueue();
         }
 
-        function approveEmergencyServices(alertId) {
+        function approveEmergencyServices(alertId, payload) {
             document.getElementById('emergency-modal').style.display = 'none';
             const statusEl = document.getElementById(`status-${alertId}`);
             if (statusEl) {
                 statusEl.innerHTML = "✓ Emergency Users Notified";
                 statusEl.style.color = "var(--success)";
             }
+
+            // Send payload to backend
+            fetch('/api/notify-emergency', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    message: payload.message,
+                    entities: payload.entities,
+                    severity: payload.severity,
+                    timestamp: payload.timestamp
+                })
+            }).catch(err => console.error("Error notifying emergency services:", err));
+
             isPopupShowing = false;
             processEmergencyQueue();
         }
