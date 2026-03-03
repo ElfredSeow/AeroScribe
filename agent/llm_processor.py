@@ -117,15 +117,51 @@ Current State:
             text_out = outputs[0]["generated_text"]
             
             # Extract JSON from potential markdown wrapping
-            json_match = re.search(r'```json\s*(.*?)\s*```', text_out, re.DOTALL)
+            json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', text_out, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1)
             else:
-                # Attempt to parse raw if no backticks
-                json_str = text_out
+                # Fallback: extract substring from first { to last }
+                start_idx = text_out.find('{')
+                end_idx = text_out.rfind('}')
+                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                    json_str = text_out[start_idx:end_idx+1]
+                else:
+                    json_str = text_out
                 
             return LLMResponse.model_validate_json(json_str)
             
         except Exception as e:
             logger.error(f"Local LLM Processing error: {e}")
             return fallback_resp
+
+    def generate_plan(self, current_state: Dict[str, Any]) -> str:
+        if not self.pipe:
+            return "Local LLM not loaded. Cannot generate an intelligent routing plan. Please resolve manually."
+        
+        system_prompt = f"""You are an Air Traffic Control AI planner at WSSS airport.
+Airport Layout: {json.dumps(config.AIRPORT_LAYOUT)}
+
+Task:
+Analyze the Current State and provide a short, conflict-free routing suggestion for active aircraft and vehicles.
+Provide the response as a bulleted list using markdown format. Use **bold** for entity IDs.
+
+Current State:
+{json.dumps(current_state)}
+"""
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": "Generate a safe routing plan for current entities."}
+        ]
+        
+        try:
+            outputs = self.pipe(
+                messages, 
+                max_new_tokens=400, 
+                do_sample=False,
+                return_full_text=False
+            )
+            return outputs[0]["generated_text"].strip()
+        except Exception as e:
+            logger.error(f"LLM Planning error: {e}")
+            return f"Error generating plan: {e}"

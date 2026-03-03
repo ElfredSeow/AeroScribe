@@ -679,7 +679,7 @@
                 style="font-size: 1.1rem; line-height: 1.5; margin-bottom: 24px; color: var(--text-main);"></p>
             <div style="display: flex; gap: 12px; justify-content: flex-end;">
                 <button id="btn-cancel-emergency" class="btn-cancel">Dismiss</button>
-                <button id="btn-approve-emergency" class="btn-approve">Notify Emergency Services</button>
+                <button id="btn-approve-emergency" class="btn-approve">Notify Emergency Users</button>
             </div>
         </div>
     </div>
@@ -827,7 +827,7 @@
             const modal = document.getElementById('emergency-modal');
             const desc = document.getElementById('em-modal-desc');
 
-            desc.innerHTML = `<strong>Aircraft/Entities:</strong> ${payload.entities.join(', ')}<br><br><strong>Description:</strong> ${payload.message}<br><br>Should emergency services be notified?`;
+            desc.innerHTML = `<strong>Aircraft/Entities:</strong> ${payload.entities.join(', ')}<br><br><strong>Description:</strong> ${payload.message}<br><br><span style="color: var(--warning); font-weight: bold;">Would you like to notify emergency users (Fire, Medical, Towing)?</span>`;
 
             document.getElementById('btn-approve-emergency').onclick = () => approveEmergencyServices(alertId);
             document.getElementById('btn-cancel-emergency').onclick = () => closeEmergencyPopup(alertId);
@@ -850,7 +850,7 @@
             document.getElementById('emergency-modal').style.display = 'none';
             const statusEl = document.getElementById(`status-${alertId}`);
             if (statusEl) {
-                statusEl.innerHTML = "✓ Emergency Response Notified";
+                statusEl.innerHTML = "✓ Emergency Users Notified";
                 statusEl.style.color = "var(--success)";
             }
             isPopupShowing = false;

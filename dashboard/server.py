@@ -23,13 +23,27 @@ app.add_middleware(
 class ConnectionManager:
     def __init__(self):
         self.active_connections = []
-        self.message_cache = []
+        self.state_cache = None
+        self.transcript_cache = []
+        self.alert_cache = []
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
         # Flush the recent history cache to new clients so they don't see an empty screen
-        for msg in self.message_cache:
+        if self.state_cache:
+            try:
+                await websocket.send_text(self.state_cache)
+            except:
+                pass
+        
+        for msg in self.transcript_cache:
+            try:
+                await websocket.send_text(msg)
+            except:
+                pass
+                
+        for msg in self.alert_cache:
             try:
                 await websocket.send_text(msg)
             except:
@@ -43,20 +57,17 @@ class ConnectionManager:
         try:
             data = json.loads(msg)
             topic = data.get("topic")
+            
             if topic == "state":
-                import copy
-                self.message_cache = [m for m in self.message_cache if json.loads(m).get("topic") != "state"]
-                self.message_cache.append(msg)
+                self.state_cache = msg
             elif topic == "transcript":
-                self.message_cache.append(msg)
-                transcripts = [m for m in self.message_cache if json.loads(m).get("topic") == "transcript"]
-                if len(transcripts) > 15:
-                    self.message_cache.remove(transcripts[0])
+                self.transcript_cache.append(msg)
+                if len(self.transcript_cache) > 15:
+                    self.transcript_cache.pop(0)
             elif topic == "alert":
-                self.message_cache.append(msg)
-                alerts = [m for m in self.message_cache if json.loads(m).get("topic") == "alert"]
-                if len(alerts) > 10:
-                    self.message_cache.remove(alerts[0])
+                self.alert_cache.append(msg)
+                if len(self.alert_cache) > 10:
+                    self.alert_cache.pop(0)
         except Exception as e:
             logger.error(f"Cache error: {e}")
 
