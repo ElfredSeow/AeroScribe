@@ -734,6 +734,8 @@
                 if (data.topic === 'transcript') {
                     if (tsEmpty) { tsEmpty.remove(); tsEmpty = null; }
                     handleTranscript(data.data);
+                } else if (data.topic === 'transcript_update') {
+                    handleTranscriptUpdate(data.data);
                 } else if (data.topic === 'state') {
                     handleStateUpdate(data.data);
                 } else if (data.topic === 'alert') {
@@ -747,17 +749,52 @@
 
         function handleTranscript(payload) {
             const el = document.createElement('div');
-            el.className = `transcript-item intent-${payload.parsed.intent || 'unknown'}`;
-            if (payload.parsed.emergency_flag) el.classList.add('intent-emergency');
+            el.id = `ts-${payload.id}`;
+            el.className = `transcript-item intent-unknown`;
 
-            const timeStr = new Date(payload.parsed.timestamp * 1000).toLocaleTimeString();
+            // At first, it's just raw text without parsed entity/intent data
+            const timeStr = new Date().toLocaleTimeString();
 
-            el.innerHTML = `
-                <div class="transcript-meta">${timeStr} • ${payload.parsed.entity_type.toUpperCase()} • ${payload.parsed.entity_id}</div>
-                <div class="transcript-raw">"${payload.raw}"</div>
-            `;
+            let parsed = payload.parsed;
+            if (parsed) {
+                // If it already comes with parsed data (e.g., from cache on page load)
+                if (parsed.intent) el.className = `transcript-item intent-${parsed.intent}`;
+                if (parsed.emergency_flag) el.classList.add('intent-emergency');
+                
+                const eventTimeStr = parsed.timestamp ? new Date(parsed.timestamp * 1000).toLocaleTimeString() : timeStr;
+                el.innerHTML = `
+                    <div class="transcript-meta">${eventTimeStr} • ${parsed.entity_type.toUpperCase()} • ${parsed.entity_id}</div>
+                    <div class="transcript-raw">"${payload.raw}"</div>
+                `;
+            } else {
+                // Raw unparsed state (instant broadcast)
+                el.style.opacity = '0.7';
+                el.innerHTML = `
+                    <div class="transcript-meta">${timeStr} • PROCESSING... <span style="display:inline-block; animation: pulse 1s infinite;">⏳</span></div>
+                    <div class="transcript-raw">"${payload.raw}"</div>
+                `;
+            }
+
             transcriptsContainer.prepend(el);
             if (transcriptsContainer.children.length > 50) transcriptsContainer.lastChild.remove();
+        }
+
+        function handleTranscriptUpdate(payload) {
+            const el = document.getElementById(`ts-${payload.id}`);
+            if (!el) return; // If we can't find it, we skip (or we could call handleTranscript)
+
+            let parsed = payload.parsed;
+            if (!parsed) return;
+
+            el.style.opacity = '1';
+            el.className = `transcript-item intent-${parsed.intent || 'unknown'}`;
+            if (parsed.emergency_flag) el.classList.add('intent-emergency');
+
+            const eventTimeStr = parsed.timestamp ? new Date(parsed.timestamp * 1000).toLocaleTimeString() : new Date().toLocaleTimeString();
+            el.innerHTML = `
+                <div class="transcript-meta">${eventTimeStr} • ${parsed.entity_type.toUpperCase()} • ${parsed.entity_id}</div>
+                <div class="transcript-raw">"${payload.raw}"</div>
+            `;
         }
 
         function getPhaseStyle(phase) {

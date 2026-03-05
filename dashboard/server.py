@@ -65,6 +65,16 @@ class ConnectionManager:
                 self.transcript_cache.append(msg)
                 if len(self.transcript_cache) > 15:
                     self.transcript_cache.pop(0)
+            elif topic == "transcript_update":
+                # Find the existing transcript with this ID and update it in cache
+                target_id = data.get("data", {}).get("id")
+                for i in range(len(self.transcript_cache)):
+                    cached_data = json.loads(self.transcript_cache[i])
+                    if cached_data.get("data", {}).get("id") == target_id:
+                        # Replace the raw broadcast with the updated one
+                        data["topic"] = "transcript" # Send it to new clients as a normal transcript
+                        self.transcript_cache[i] = json.dumps(data)
+                        break
             elif topic == "alert":
                 self.alert_cache.append(msg)
                 if len(self.alert_cache) > 10:

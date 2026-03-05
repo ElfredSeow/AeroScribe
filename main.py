@@ -27,28 +27,35 @@ conflict_detector = ConflictDetector(aircraft_engine, ground_engine)
 emergency_detector = EmergencyDetector(aircraft_engine, ground_engine)
 llm_agent = LLMProcessor()
 
+import time
+import uuid
+
 def process_text_transcript(text: str):
     """Core pipeline for processing text transcripts using LLM Agent."""
     if not text.strip(): return
+    
+    transcript_id = str(uuid.uuid4())
+    
+    # 1. Immediate raw broadcast before LLM processing
+    broadcast_sync("transcript", {"id": transcript_id, "raw": text, "parsed": None})
     
     current_state = {
         "aircraft": aircraft_engine.get_snapshot(),
         "ground": ground_engine.get_snapshot()
     }
     
-    # 1. Ask LLM to evaluate transcript and current state
-    import time
+    # 2. Ask LLM to evaluate transcript and current state
     llm_response = llm_agent.process(text, current_state)
     
     parsed_event = llm_response.parsed_event.model_dump()
     parsed_event["timestamp"] = time.time()
     
-    # 2. Update Operational State
+    # 3. Update Operational State
     aircraft_engine.update_from_event(parsed_event)
     ground_engine.update_from_event(parsed_event)
     
-    # Send Transcripts and State to UI immediately
-    broadcast_sync("transcript", {"raw": text, "parsed": parsed_event})
+    # Send Transcripts Update and State to UI
+    broadcast_sync("transcript_update", {"id": transcript_id, "raw": text, "parsed": parsed_event})
     
     state_snap = {
         "aircraft": aircraft_engine.get_snapshot(),
