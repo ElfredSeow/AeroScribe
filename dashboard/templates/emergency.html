@@ -373,6 +373,12 @@
             background: rgba(13, 17, 23, 0.8);
         }
 
+        .history-item.selected {
+            background: rgba(51, 225, 237, 0.1);
+            border-right: 4px solid var(--accent);
+            box-shadow: inset 0 0 10px rgba(51, 225, 237, 0.1);
+        }
+
         .history-item.resolved {
             border-left-color: var(--success);
             opacity: 0.7;
@@ -480,6 +486,52 @@
         let currentEmergency = null;
         let incidentHistory = [];
 
+        function setMainStatus(incident) {
+            if (!incident) {
+                activeEmergencyView.classList.remove('visible');
+                noEmergencyState.style.display = 'flex';
+                document.body.classList.remove('emergency-active');
+                return;
+            }
+
+            noEmergencyState.style.display = 'none';
+            activeEmergencyView.classList.add('visible');
+
+            if (incident.status === 'active') {
+                document.body.classList.add('emergency-active');
+            } else {
+                document.body.classList.remove('emergency-active');
+            }
+
+            // Fill details
+            document.getElementById('em-time').innerText = incident.receivedAt.toLocaleTimeString();
+            document.getElementById('em-entities').innerText = incident.entities.join(', ') || 'UNKNOWN';
+            document.getElementById('em-desc').innerText = incident.message;
+
+            // Update buttons based on status
+            const dispatchBtn = document.querySelector('.btn-dispatch');
+            if (incident.status === 'dispatched' || incident.status === 'resolved') {
+                dispatchBtn.innerHTML = '✓ Units Dispatched';
+                dispatchBtn.style.backgroundColor = 'var(--success)';
+                dispatchBtn.disabled = true;
+            } else {
+                dispatchBtn.innerHTML = '🚨 Acknowledge & Dispatch Units';
+                dispatchBtn.style.backgroundColor = '';
+                dispatchBtn.disabled = false;
+            }
+        }
+
+        function selectIncident(id) {
+            // Remove previous selection
+            document.querySelectorAll('.history-item').forEach(el => el.classList.remove('selected'));
+
+            const selectedEl = document.getElementById(`hist-${id}`);
+            if (selectedEl) selectedEl.classList.add('selected');
+
+            currentEmergency = incidentHistory.find(inc => inc.id === id);
+            setMainStatus(currentEmergency);
+        }
+
         ws.onopen = () => {
             connDot.style.backgroundColor = 'var(--success)';
             connDot.style.boxShadow = '0 0 10px var(--success)';
@@ -520,12 +572,13 @@
             document.body.classList.add('emergency-active');
 
             // Fill details
-            document.getElementById('em-time').innerText = currentEmergency.receivedAt.toLocaleTimeString();
-            document.getElementById('em-entities').innerText = payload.entities.join(', ') || 'UNKNOWN';
-            document.getElementById('em-desc').innerText = payload.message;
+            setMainStatus(currentEmergency);
 
             // Add to history
             addToHistory(currentEmergency);
+
+            // Automatically select the newest one
+            selectIncident(currentEmergency.id);
 
             // Play an alert sound (browsers usually block this without interaction so we wrap in try/catch)
             try {
@@ -571,6 +624,7 @@
             const el = document.createElement('div');
             el.id = `hist-${incident.id}`;
             el.className = 'history-item';
+            el.onclick = () => selectIncident(incident.id);
 
             el.innerHTML = `
                 <div class="history-meta">
@@ -590,49 +644,55 @@
         }
 
         function updateHistoryStatus(id, newStatus) {
+            const inc = incidentHistory.find(i => i.id === id);
+            if (inc) inc.status = newStatus.toLowerCase();
+
             const el = document.getElementById(`hist-${id}`);
             if (el) {
-                el.classList.add('resolved');
+                if (newStatus.toLowerCase() === 'resolved') el.classList.add('resolved');
                 const statusSpan = el.querySelector('.history-meta span:nth-child(2)');
                 if (statusSpan) {
-                    statusSpan.style.color = 'var(--success)';
+                    statusSpan.style.color = newStatus.toLowerCase() === 'active' ? 'var(--danger)' : (newStatus.toLowerCase() === 'dispatched' ? 'var(--warning)' : 'var(--success)');
                     statusSpan.innerText = newStatus.toUpperCase();
                 }
             }
         }
 
-        function acknowledgeDispatch() {
+        async function acknowledgeDispatch() {
             if (!currentEmergency) return;
 
-            const btn = document.querySelector('.btn-dispatch');
-            btn.innerHTML = '✓ Units Dispatched';
-            btn.style.backgroundColor = 'var(--success)';
-            btn.style.boxShadow = 'none';
-            document.body.classList.remove('emergency-active');
+            // Notify backend to reset tracking for this entity
+            const firstEntity = currentEmergency.entities[0];
+            if (firstEntity) {
+                try {
+                    await fetch(`/api/resolve-emergency/${firstEntity}`, { method: 'POST' });
+                } catch (err) {
+                    console.error("Failed to notify backend of dispatch:", err);
+                }
+            }
 
             updateHistoryStatus(currentEmergency.id, 'Dispatched');
-
-            setTimeout(() => {
-                btn.innerHTML = '🚨 Acknowledge & Dispatch Units';
-                btn.style.backgroundColor = '';
-                btn.style.boxShadow = '';
-                clearEmergencyView();
-            }, 3000);
+            setMainStatus(currentEmergency);
         }
 
-        function markResolved() {
+        async function markResolved() {
             if (!currentEmergency) return;
+
+            // Notify backend to reset tracking for this entity
+            const firstEntity = currentEmergency.entities[0];
+            if (firstEntity) {
+                try {
+                    await fetch(`/api/resolve-emergency/${firstEntity}`, { method: 'POST' });
+                } catch (err) {
+                    console.error("Failed to notify backend of resolution:", err);
+                }
+            }
 
             document.body.classList.remove('emergency-active');
             updateHistoryStatus(currentEmergency.id, 'Resolved/Standby');
-            clearEmergencyView();
+            setMainStatus(null);
         }
 
-        function clearEmergencyView() {
-            activeEmergencyView.classList.remove('visible');
-            noEmergencyState.style.display = 'flex';
-            currentEmergency = null;
-        }
     </script>
 </body>
 

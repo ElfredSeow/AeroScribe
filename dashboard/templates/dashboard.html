@@ -537,13 +537,93 @@
                 transform: translateY(0);
             }
         }
+
+        /* Incident Log Modal Specifics */
+        .incident-log-container {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            height: calc(85vh - 60px);
+            overflow: hidden;
+            border-radius: 12px;
+            background: rgba(13, 17, 23, 0.4);
+            border: 1px solid var(--border);
+        }
+
+        .incident-sidebar {
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .incident-detail-panel {
+            padding: 30px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .incident-list-item {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .incident-list-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .incident-list-item.active {
+            background: rgba(51, 225, 237, 0.1);
+            border-left: 4px solid var(--accent);
+        }
+
+        .incident-status-tag {
+            font-size: 0.7rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-top: 4px;
+            display: inline-block;
+        }
+
+        .status-pending {
+            background: rgba(227, 179, 65, 0.1);
+            color: var(--warning);
+            border: 1px solid rgba(227, 179, 65, 0.3);
+        }
+
+        .status-notified {
+            background: rgba(46, 160, 67, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(46, 160, 67, 0.3);
+        }
+
+        .status-dismissed {
+            background: rgba(139, 148, 158, 0.1);
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+        }
     </style>
 </head>
 
 <body>
 
     <div class="header">
-        <h1>ATC AI Assist Dashboard</h1>
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <h1>ATC AI Assist Dashboard</h1>
+            <button onclick="openIncidentLogs()" class="expand-btn"
+                style="background: rgba(51, 225, 237, 0.15); color: var(--accent); border-color: rgba(51, 225, 237, 0.4); padding: 8px 16px; border-radius: 20px;">
+                📋 Incident Logs
+            </button>
+            <a href="/emergency" target="_blank" class="expand-btn"
+                style="background: rgba(248, 81, 73, 0.15); color: #ff7b72; border-color: rgba(248, 81, 73, 0.4); padding: 8px 16px; border-radius: 20px; text-decoration: none;">
+                🚨 Emergency Dashboard
+            </a>
+        </div>
         <div class="status-indicator">
             <div class="dot" id="conn-dot"></div>
             <span id="conn-status">Connecting...</span>
@@ -690,7 +770,196 @@
         </div>
     </div>
 
+    <!-- Incident Log Modal -->
+    <div id="incidents-modal" class="modal-overlay"
+        style="display: none; justify-content: center; align-items: center;">
+        <div class="panel"
+            style="width: 90%; max-width: 1100px; height: 85vh; padding: 20px; display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 class="section-title" style="margin: 0; border: none;">📋 Past Incident Logs</h2>
+                <button onclick="document.getElementById('incidents-modal').style.display='none'"
+                    style="background: none; border: none; color: white; cursor: pointer; font-size: 1.5rem;">&times;</button>
+            </div>
+
+            <div class="incident-log-container">
+                <div class="incident-sidebar" id="incident-list">
+                    <!-- List items will be injected here -->
+                </div>
+                <div class="incident-detail-panel" id="incident-detail">
+                    <div class="empty-state" style="margin-top: 100px;">Select an incident from the log to view details.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // --- INCIDENT LOG VIEWER LOGIC ---
+        let allIncidentLogs = [];
+
+        async function openIncidentLogs() {
+            document.getElementById('incidents-modal').style.display = 'flex';
+            document.getElementById('incident-list').innerHTML = '<div class="empty-state">Loading logs...</div>';
+            document.getElementById('incident-detail').innerHTML = '<div class="empty-state" style="margin-top: 100px;">Select an incident from the log to view details.</div>';
+
+            try {
+                const response = await fetch('/api/incident-logs');
+                allIncidentLogs = await response.json();
+                renderIncidentList(allIncidentLogs);
+            } catch (err) {
+                console.error("Failed to fetch incident logs:", err);
+                document.getElementById('incident-list').innerHTML = '<div class="empty-state">Error loading logs.</div>';
+            }
+        }
+
+        function renderIncidentList(logs) {
+            const listContainer = document.getElementById('incident-list');
+            listContainer.innerHTML = '';
+
+            if (logs.length === 0) {
+                listContainer.innerHTML = '<div class="empty-state">No incidents found.</div>';
+                return;
+            }
+
+            logs.forEach(incident => {
+                const item = document.createElement('div');
+                item.className = 'incident-list-item';
+                item.onclick = () => {
+                    document.querySelectorAll('.incident-list-item').forEach(el => el.classList.remove('active'));
+                    item.classList.add('active');
+                    showIncidentDetail(incident);
+                };
+
+                const date = new Date(incident.timestamp * 1000);
+                const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+                let severityClass = incident.severity || 'LOW';
+                if (incident.alert_type === 'EMERGENCY_DECLARED' || (incident.message && incident.message.toLowerCase().includes('emergency'))) {
+                    severityClass = 'EMERGENCY';
+                }
+
+                const status = incident.action_status || 'pending';
+                const statusLabel = status === 'pending' ? '⏳ Pending' : (status === 'notified' ? '✓ Notified' : '✗ Dismissed');
+                const statusClass = `status-${status}`;
+
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span class="badge ${severityClass}" style="font-size: 0.65rem; padding: 2px 6px;">${severityClass}</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">${timeStr}</span>
+                    </div>
+                    <div style="font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${incident.alert_type.replace(/_/g, ' ')}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">${incident.entities.join(', ')}</div>
+                    <div class="incident-status-tag ${statusClass}">${statusLabel}</div>
+                `;
+                listContainer.appendChild(item);
+            });
+        }
+
+        function showIncidentDetail(incident) {
+            const detailPanel = document.getElementById('incident-detail');
+            const date = new Date(incident.timestamp * 1000).toLocaleString();
+
+            let severityClass = incident.severity || 'LOW';
+            if (incident.alert_type === 'EMERGENCY_DECLARED' || (incident.message && incident.message.toLowerCase().includes('emergency'))) {
+                severityClass = 'EMERGENCY';
+            }
+
+            const status = incident.action_status || 'pending';
+            const isEmergency = severityClass === 'EMERGENCY';
+
+            let actionsHTML = '';
+            if (isEmergency && status === 'pending') {
+                actionsHTML = `
+                    <div style="margin-top: 30px; padding: 20px; background: rgba(248, 81, 73, 0.05); border: 1px dashed var(--danger); border-radius: 12px;">
+                        <h4 style="color: var(--warning); margin-top: 0;">⚠️ Action Required</h4>
+                        <p style="font-size: 0.9rem; margin-bottom: 20px;">This emergency log has not been acted upon yet. Please choose an option below:</p>
+                        <div style="display: flex; gap: 12px;">
+                            <button class="btn-cancel" style="flex: 1;" onclick="takeIncidentAction('${incident.timestamp}', 'dismissed')">Dismiss Alert</button>
+                            <button class="btn-approve" style="flex: 1;" onclick="takeIncidentAction('${incident.timestamp}', 'notified')">Notify Emergency Users</button>
+                        </div>
+                    </div>
+                `;
+            } else if (status !== 'pending') {
+                const label = status === 'notified' ? '✓ Emergency Users were Notified' : '✗ Alert was Dismissed';
+                const color = status === 'notified' ? 'var(--success)' : 'var(--text-muted)';
+                actionsHTML = `
+                    <div style="margin-top: 30px; padding: 15px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 8px; color: ${color}; font-weight: 600; text-align: center;">
+                        ${label}
+                    </div>
+                `;
+            }
+
+            detailPanel.innerHTML = `
+                <div style="margin-bottom: 24px;">
+                    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 8px;">
+                        <span class="badge ${severityClass}">${severityClass}</span>
+                        <h2 style="margin: 0;">${incident.alert_type.replace(/_/g, ' ')}</h2>
+                    </div>
+                    <div style="color: var(--text-muted); font-family: 'Outfit'; font-size: 0.95rem;">${date}</div>
+                </div>
+
+                <div style="background: rgba(255, 255, 255, 0.03); padding: 20px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 24px;">
+                    <h4 style="margin-top: 0; color: var(--text-muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px;">Message Content</h4>
+                    <div style="font-size: 1.1rem; line-height: 1.6; color: var(--text-main);">${incident.message}</div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div style="background: rgba(255, 255, 255, 0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border);">
+                        <h4 style="margin-top: 0; color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem;">Affected Entities</h4>
+                        <div style="font-weight: 500;">${incident.entities.join(', ')}</div>
+                    </div>
+                    <div style="background: rgba(255, 255, 255, 0.02); padding: 15px; border-radius: 8px; border: 1px solid var(--border);">
+                        <h4 style="margin-top: 0; color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem;">Timestamp (Epoch)</h4>
+                        <div style="font-family: monospace;">${incident.timestamp}</div>
+                    </div>
+                </div>
+
+                ${actionsHTML}
+            `;
+        }
+
+        async function takeIncidentAction(timestamp, action) {
+            try {
+                // Find the incident for later use
+                const incident = allIncidentLogs.find(i => String(i.timestamp) === String(timestamp));
+                if (!incident) throw new Error("Incident not found in local cache.");
+
+                // 1. Update backend
+                await fetch(`/api/incident-logs/${timestamp}/action`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: action })
+                });
+
+                // 2. If 'notified', trigger the actual emergency notification
+                if (action === 'notified') {
+                    await fetch('/api/notify-emergency', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            message: incident.message,
+                            entities: incident.entities,
+                            severity: incident.severity,
+                            timestamp: incident.timestamp
+                        })
+                    });
+
+                    // Also add to handledEmergencyEntities if the live dashboard is open
+                    if (typeof handledEmergencyEntities !== 'undefined' && incident.entities) {
+                        incident.entities.forEach(e => handledEmergencyEntities.add(e));
+                    }
+                }
+
+                // 3. Update local state and UI
+                incident.action_status = action;
+                renderIncidentList(allIncidentLogs);
+                showIncidentDetail(incident);
+            } catch (err) {
+                console.error("Failed to record incident action:", err);
+                alert("Action failed. See console for details.");
+            }
+        }
+
         function toggleExpand(btn) {
             const panel = btn.closest('.panel');
             panel.classList.toggle('expanded');
@@ -760,7 +1029,7 @@
                 // If it already comes with parsed data (e.g., from cache on page load)
                 if (parsed.intent) el.className = `transcript-item intent-${parsed.intent}`;
                 if (parsed.emergency_flag) el.classList.add('intent-emergency');
-                
+
                 const eventTimeStr = parsed.timestamp ? new Date(parsed.timestamp * 1000).toLocaleTimeString() : timeStr;
                 el.innerHTML = `
                     <div class="transcript-meta">${eventTimeStr} • ${parsed.entity_type.toUpperCase()} • ${parsed.entity_id}</div>
@@ -861,8 +1130,14 @@
         let alertIdCounter = 0;
         let emergencyQueue = [];
         let isPopupShowing = false;
+        let handledEmergencyEntities = new Set();
+        let pendingEmergencyEntities = new Set(); // Track entities that have a popup queued or visible
 
         function showEmergencyPopup(payload, alertId) {
+            // Mark all entities in this alert as pending
+            if (payload.entities) {
+                payload.entities.forEach(e => pendingEmergencyEntities.add(e));
+            }
             emergencyQueue.push({ payload, alertId });
             processEmergencyQueue();
         }
@@ -879,13 +1154,19 @@
             desc.innerHTML = `<strong>Aircraft/Entities:</strong> ${payload.entities.join(', ')}<br><br><strong>Description:</strong> ${payload.message}<br><br><span style="color: var(--warning); font-weight: bold;">Would you like to notify emergency users (Fire, Medical, Towing)?</span>`;
 
             document.getElementById('btn-approve-emergency').onclick = () => approveEmergencyServices(alertId, payload);
-            document.getElementById('btn-cancel-emergency').onclick = () => closeEmergencyPopup(alertId);
+            document.getElementById('btn-cancel-emergency').onclick = () => closeEmergencyPopup(alertId, payload);
 
             modal.style.display = 'flex';
         }
 
-        function closeEmergencyPopup(alertId) {
+        function closeEmergencyPopup(alertId, payload) {
             document.getElementById('emergency-modal').style.display = 'none';
+            if (payload && payload.entities) {
+                payload.entities.forEach(e => {
+                    handledEmergencyEntities.add(e);
+                    pendingEmergencyEntities.delete(e);
+                });
+            }
             const statusEl = document.getElementById(`status-${alertId}`);
             if (statusEl) {
                 statusEl.innerText = "Emergency Response Declined";
@@ -897,6 +1178,12 @@
 
         function approveEmergencyServices(alertId, payload) {
             document.getElementById('emergency-modal').style.display = 'none';
+            if (payload && payload.entities) {
+                payload.entities.forEach(e => {
+                    handledEmergencyEntities.add(e);
+                    pendingEmergencyEntities.delete(e);
+                });
+            }
             const statusEl = document.getElementById(`status-${alertId}`);
             if (statusEl) {
                 statusEl.innerHTML = "✓ Emergency Users Notified";
@@ -936,8 +1223,21 @@
 
             let statusHTML = '';
             if (severityClass === 'EMERGENCY') {
-                statusHTML = `<div id="status-${alertId}" style="margin-top: 8px; font-weight: bold; color: var(--warning); font-size: 0.85rem;">Pending Emergency Response...</div>`;
-                showEmergencyPopup(payload, alertId);
+                // Check if ALL entities in this alert have already been handled OR are pending
+                const allHandled = payload.entities && payload.entities.length > 0 &&
+                    payload.entities.every(e => handledEmergencyEntities.has(e));
+
+                const anyPending = payload.entities && payload.entities.length > 0 &&
+                    payload.entities.some(e => pendingEmergencyEntities.has(e));
+
+                if (allHandled) {
+                    statusHTML = `<div id="status-${alertId}" style="margin-top: 8px; font-weight: bold; color: var(--text-muted); font-size: 0.85rem;">Previously Handled</div>`;
+                } else if (anyPending) {
+                    statusHTML = `<div id="status-${alertId}" style="margin-top: 8px; font-weight: bold; color: var(--warning); font-size: 0.85rem;">Alert Queued</div>`;
+                } else {
+                    statusHTML = `<div id="status-${alertId}" style="margin-top: 8px; font-weight: bold; color: var(--warning); font-size: 0.85rem;">Pending Emergency Response...</div>`;
+                    showEmergencyPopup(payload, alertId);
+                }
             }
 
             el.innerHTML = `

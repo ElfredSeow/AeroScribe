@@ -134,6 +134,9 @@ async def get_emergency_dashboard():
     except FileNotFoundError:
         return HTMLResponse("<h1>Emergency Template Missing</h1>", status_code=404)
 
+# In-memory store for actions taken on incidents (timestamp -> action)
+incident_actions = {}
+
 class EmergencyNotification(BaseModel):
     message: str
     entities: list[str]
@@ -145,6 +148,36 @@ async def notify_emergency(payload: EmergencyNotification):
     # Broadcast the notification to all clients, specifically meant for emergency.html
     broadcast_sync("emergency_notification", payload.dict())
     return {"status": "success", "message": "Emergency broadcast sent"}
+
+@app.get("/api/incident-logs")
+async def get_incident_logs():
+    """Returns all past alerts from the logs file, enhanced with action status."""
+    alerts = []
+    log_path = config.ALERTS_LOG_PATH
+    
+    if log_path.exists():
+        try:
+            with open(log_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        alert = json.loads(line)
+                        ts = str(alert.get("timestamp"))
+                        alert["action_status"] = incident_actions.get(ts, "pending")
+                        alerts.append(alert)
+        except Exception as e:
+            logger.error(f"Error reading incident logs: {e}")
+            
+    # Return most recent first
+    return sorted(alerts, key=lambda x: x.get("timestamp", 0), reverse=True)
+
+class IncidentAction(BaseModel):
+    action: str # "notified" or "dismissed"
+
+@app.post("/api/incident-logs/{timestamp}/action")
+async def record_incident_action(timestamp: str, payload: IncidentAction):
+    """Records an approve/dismiss action for a specific incident."""
+    incident_actions[timestamp] = payload.action
+    return {"status": "success", "timestamp": timestamp, "action": payload.action}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

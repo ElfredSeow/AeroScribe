@@ -15,6 +15,7 @@ from state.ground_state import GroundStateEngine
 from detection.conflict_detection import ConflictDetector
 from detection.emergency_detection import EmergencyDetector
 from agent.llm_processor import LLMProcessor
+from mcp_server import mcp_app
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -26,6 +27,37 @@ ground_engine = GroundStateEngine()
 conflict_detector = ConflictDetector(aircraft_engine, ground_engine)
 emergency_detector = EmergencyDetector(aircraft_engine, ground_engine)
 llm_agent = LLMProcessor()
+
+# Tracking for emergency deduplication
+alerted_emergencies = set()
+
+@app.post("/api/resolve-emergency/{entity}")
+async def resolve_emergency_api(entity: str):
+    """External trigger to clear emergency state for an entity."""
+    if entity in alerted_emergencies:
+        alerted_emergencies.remove(entity)
+        logger.info(f"Externally cleared emergency alert tracking for {entity}")
+    
+    # Also update state engines to clear flags
+    aircraft_engine.update_from_event({
+        "callsign": entity,
+        "emergency_flag": False
+    })
+    ground_engine.update_from_event({
+        "vehicle_id": entity,
+        "emergency_flag": False
+    })
+    
+    # Broadcast state update
+    state_snap = {
+        "aircraft": aircraft_engine.get_snapshot(),
+        "ground": ground_engine.get_snapshot()
+    }
+    broadcast_sync("state", state_snap)
+    
+    return {"status": "success", "entity": entity}
+
+app.mount("/mcp", mcp_app)
 
 import time
 import uuid
@@ -71,7 +103,43 @@ def process_text_transcript(text: str):
     all_alerts.extend(conflict_detector.detect_conflicts())
     all_alerts.extend(emergency_detector.detect_emergencies())
     
+    # Identify currently active emergency entities from state to allow re-triggering if cleared
+    active_emergency_entities = set()
+    for ac in state_snap["aircraft"].values():
+        if ac.get("emergency_flag"): active_emergency_entities.add(ac.get("callsign"))
+    for gnd in state_snap["ground"].values():
+        if gnd.get("emergency_flag"): active_emergency_entities.add(gnd.get("vehicle_id"))
+    
+    # Clean up alerted_emergencies: remove entities no longer in emergency state
+    to_remove = [k for k in alerted_emergencies if k not in active_emergency_entities]
+    for k in to_remove:
+        alerted_emergencies.remove(k)
+        logger.info(f"Cleared emergency alert tracking for {k}")
+
     for alert_dict in all_alerts:
+        # Deduplication for Emergencies
+        is_emergency = (
+            alert_dict.get("alert_type") == "EMERGENCY_DECLARED" or 
+            "emergency" in (alert_dict.get("message") or "").lower() or
+            alert_dict.get("severity") == "EMERGENCY"
+        )
+        
+        if is_emergency:
+            # Create a unique key (we assume single-entity emergencies for now based on simulator)
+            entities = sorted(alert_dict.get("entities", []))
+            if not entities: continue
+            
+            ent_key = entities[0] # Track per primary entity
+            if ent_key in alerted_emergencies:
+                # Still log it in the event store but skip broadcast
+                if "timestamp" not in alert_dict:
+                    alert_dict["timestamp"] = time.time()
+                event_store.log_alert(alert_dict)
+                continue
+            
+            alerted_emergencies.add(ent_key)
+            logger.info(f"Broadcasted INITIAL emergency alert for {ent_key}")
+
         if "timestamp" not in alert_dict:
             alert_dict["timestamp"] = time.time()
         broadcast_sync("alert", alert_dict)
